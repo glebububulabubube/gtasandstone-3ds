@@ -33,9 +33,13 @@ jobs:
             sudo chmod +x /usr/local/bin/dkp-dl.sh
             printf '\n[options]\nXferCommand = /usr/local/bin/dkp-dl.sh %%u %%o\n' | sudo tee -a "$DKPCONF" >/dev/null
           fi
-          sudo /opt/devkitpro/pacman/bin/pacman -Sy --noconfirm --config "$DKPCONF"
-          sudo /opt/devkitpro/pacman/bin/pacman -S --noconfirm --config "$DKPCONF" \
-            3ds-dev 3ds-libcitro3d general-tools
+          sudo /opt/devkitpro/pacman/bin/pacman --config "$DKPCONF" -Sy --noconfirm
+
+          # 3ds-dev — это ГРУППА (devkitARM + libctru + citro3d + tools).
+          # Пустой ввод в stdin выбирает "all" (поставить всю группу) без интерактива.
+          # general-tools даёт makerom/bannertool (нужны для сборки .cia).
+          echo "" | sudo /opt/devkitpro/pacman/bin/pacman --config "$DKPCONF" -S --noconfirm 3ds-dev
+          echo "" | sudo /opt/devkitpro/pacman/bin/pacman --config "$DKPCONF" -S --noconfirm general-tools
 
       - name: Verify toolchain
         run: |
