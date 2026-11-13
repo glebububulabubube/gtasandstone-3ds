@@ -14,15 +14,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up devkitPro
-        uses: devkitPro/github-action-devkitARM@v1
+      - name: Set up devkitPro (pacman)
+        run: |
+          set -e
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+          wget -U "${UA}" https://apt.devkitpro.org/install-devkitpro-pacman
+          chmod +x ./install-devkitpro-pacman
+          sudo ./install-devkitpro-pacman
 
       - name: Install 3DS toolchain + citro3d
         run: |
-          sudo dkp-pacman -Sy --noconfirm
-          # 3ds-dev: devkitARM + libctru + 3ds-tools (makerom, bannertool, smdhtool, 3dsxtool, bin2s)
-          # 3ds-libcitro3d: PICA200 GPU wrapper (citro3d)
-          sudo dkp-pacman -S --noconfirm 3ds-dev 3ds-libcitro3d
+          set -e
+          # Пакман devkitPro качает с pkg.devkitpro.org; иногда 403 для curl без UA —
+          # подменяем загрузчик на curl с браузерным User-Agent (без heredoc).
+          DKPCONF=/opt/devkitpro/pacman/etc/pacman.conf
+          if [ -f "$DKPCONF" ] && ! grep -q '^XferCommand' "$DKPCONF"; then
+            printf '#!/usr/bin/env bash\nUA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"\nexec /usr/bin/curl -fL --retry 3 -A "$UA" -o "$2" "$1"\n' | sudo tee /usr/local/bin/dkp-dl.sh >/dev/null
+            sudo chmod +x /usr/local/bin/dkp-dl.sh
+            printf '\n[options]\nXferCommand = /usr/local/bin/dkp-dl.sh %%u %%o\n' | sudo tee -a "$DKPCONF" >/dev/null
+          fi
+          sudo /opt/devkitpro/pacman/bin/pacman -Sy --noconfirm --config "$DKPCONF"
+          sudo /opt/devkitpro/pacman/bin/pacman -S --noconfirm --config "$DKPCONF" \
+            3ds-dev 3ds-libcitro3d general-tools
 
       - name: Verify toolchain
         run: |
