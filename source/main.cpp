@@ -1,52 +1,34 @@
+#pragma once
+// Персонаж CJ (бокс-человечек): ходьба, бег, прыжок, гравитация, коллизии.
+
 #include <3ds.h>
-#include <citro3d.h>
-
-#include "player.hpp"
+#include "engine.hpp"
 #include "world.hpp"
-#include "render.hpp"
 
-static stone::Player player;
-static bool running = true;
+namespace stone {
 
-static void handleInput(u32 held, u32 down) {
-    player.accel = (held & KEY_R) ? 2.5f : 1.0f; // R - бег
-    if (down & KEY_B) player.jump();
-    if (down & KEY_START) running = false;
-}
+class Player {
+public:
+    Vec3 position;     // position.y = уровень ног
+    Vec3 velocity;
+    float accel;       // множитель скорости (1.0 ходьба, 2.5 бег)
+    bool onGround;
+    float halfW  = 0.35f; // половина ширины тела
+    float height = 1.8f;  // рост
 
-int main() {
-    gfxInitDefault();
-    C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
-    stone::RenderInit();
+    Vec3 forward; // направление движения
 
-    stone::World world;
-    world.init();
-    player.reset(world.spawn());
+    Player() : position(0, 0, 0), velocity(0, 0, 0), accel(1.0f), onGround(false),
+               forward(0, 0, 1) {}
 
-    stone::RenderSetWorld(&world);
-    stone::SetPlayerPos(player.position);
+    void reset(const Vec3& p);
+    void jump();
+    void update(u32 held, const World& world);
 
-    while (aptMainLoop()) {
-        hidScanInput();
-        u32 held = hidKeysHeld();
-        u32 down = hidKeysDown();
-        handleInput(held, down);
+    // стены + земля + границы карты
+    void collide(const World& world);
 
-        player.update(held, world);
+    Vec3 center() const { return position + Vec3(0, height*0.5f, 0); }
+};
 
-        // Камера: позади игрока, смотрим на него
-        stone::Camera cam;
-        cam.pos = player.position + stone::Vec3(-3.5f, 3.2f, 2.5f);
-        cam.look = player.position + stone::Vec3(0, 1.4f, 0);
-
-        stone::SetPlayerPos(player.position);
-        stone::RenderFrame(cam);
-
-        if (!running) break;
-    }
-
-    stone::RenderShutdown();
-    C3D_Fini();
-    gfxExit();
-    return 0;
-}
+} // namespace stone
