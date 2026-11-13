@@ -17,14 +17,14 @@ static void handleInput(u32 held, u32 down) {
 int main() {
     gfxInitDefault();
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
-    RenderInit();
+    stone::RenderInit();
 
     stone::World world;
     world.init();
     player.reset(world.spawn());
 
-    RenderSetWorld(&world);
-    SetPlayerPos(player.position);
+    stone::RenderSetWorld(&world);
+    stone::SetPlayerPos(player.position);
 
     while (aptMainLoop()) {
         hidScanInput();
@@ -35,17 +35,17 @@ int main() {
         player.update(held, world);
 
         // Камера: позади игрока, смотрим на него
-        Camera cam;
-        cam.pos = player.position + Vec3(-3.5f, 3.2f, 2.5f);
-        cam.look = player.position + Vec3(0, 1.4f, 0);
+        stone::Camera cam;
+        cam.pos = player.position + stone::Vec3(-3.5f, 3.2f, 2.5f);
+        cam.look = player.position + stone::Vec3(0, 1.4f, 0);
 
-        SetPlayerPos(player.position);
-        RenderFrame(cam);
+        stone::SetPlayerPos(player.position);
+        stone::RenderFrame(cam);
 
         if (!running) break;
     }
 
-    RenderShutdown();
+    stone::RenderShutdown();
     C3D_Fini();
     gfxExit();
     return 0;
