@@ -1,9 +1,7 @@
-// source/render.cpp — исправленная версия (то, что нужно залить в репозиторий)
 #include "render.hpp"
 #include <3ds.h>
 #include <citro3d.h>
 #include <string.h>
-#include <math.h>
 #include "vshader_shbin.h"
 
 namespace stone {
@@ -62,6 +60,7 @@ static inline void vert(float x, float y, float z, float r, float g, float b) {
 
 // Отрисовка грани куба из 4 вершин (квад = 2 треугольника)
 static void drawQuad(const Vec3* v, float cr, float cg, float cb) {
+    // v[0..3] — четыре угла в порядке обхода
     C3D_ImmDrawBegin(GPU_TRIANGLES);
     vert(v[0].x, v[0].y, v[0].z, cr, cg, cb);
     vert(v[1].x, v[1].y, v[1].z, cr, cg, cb);
@@ -78,59 +77,63 @@ static void drawBox(const Vec3& centre, const Vec3& half, u32 rgb) {
     float y0 = centre.y-half.y, y1 = centre.y+half.y;
     float z0 = centre.z-half.z, z1 = centre.z+half.z;
 
+    // 8 вершин
     Vec3 p[8] = {
-        Vec3(x0,y0,z0), Vec3(x1,y0,z0), Vec3(x1,y1,z0), Vec3(x0,y1,z0), // 0-3 (z0)
+        Vec3(x0,y0,z0), Vec3(x1,y0,z0), Vec3(x1,y1,z0), Vec3(x0,y1,z0), // 0-3 (низ/верх z0)
         Vec3(x0,y0,z1), Vec3(x1,y0,z1), Vec3(x1,y1,z1), Vec3(x0,y1,z1)  // 4-7 (z1)
     };
 
+    // лёгкая подсветка граней для объёма
     float r = ((rgb>>16)&0xFF)/255.0f, g = ((rgb>>8)&0xFF)/255.0f, b = (rgb&0xFF)/255.0f;
 
-    Vec3 quad[4];
     // +y (верх) светлый, низ темнее, бока средне
+    Vec3 quad[4];
+
+    // топ (+y): 3,2,6,7
     quad[0]=p[3]; quad[1]=p[2]; quad[2]=p[6]; quad[3]=p[7];
     drawQuad(quad, r, g, b);
+    // бот (-y): 0,4,5,1
     quad[0]=p[0]; quad[1]=p[4]; quad[2]=p[5]; quad[3]=p[1];
     drawQuad(quad, r*0.5f, g*0.5f, b*0.5f);
+    // +x: 1,5,6,2
     quad[0]=p[1]; quad[1]=p[5]; quad[2]=p[6]; quad[3]=p[2];
     drawQuad(quad, r*0.8f, g*0.8f, b*0.8f);
+    // -x: 0,3,7,4
     quad[0]=p[0]; quad[1]=p[3]; quad[2]=p[7]; quad[3]=p[4];
     drawQuad(quad, r*0.7f, g*0.7f, b*0.7f);
+    // +z: 4,7,6,5
     quad[0]=p[4]; quad[1]=p[7]; quad[2]=p[6]; quad[3]=p[5];
     drawQuad(quad, r*0.9f, g*0.9f, b*0.9f);
+    // -z: 0,1,2,3
     quad[0]=p[0]; quad[1]=p[1]; quad[2]=p[2]; quad[3]=p[3];
     drawQuad(quad, r*0.6f, g*0.6f, b*0.6f);
 }
 
 // Перспективная проекция
 static void perspective(C3D_Mtx& m, float fovy, float aspect, float znear, float zfar) {
-    float f = 1.0f / tanf(fovy * 0.5f);
-    float nf = 1.0f / (znear - zfar);
-    Mtx_Identity(&m);
-    m.r[0].x = f / aspect;
-    m.r[0].w = 0.0f;
-    m.r[1].y = f;
-    m.r[2].z = (znear + zfar) * nf;
-    m.r[2].w = -1.0f;
-    m.r[3].z = (2.0f * znear * zfar) * nf;
-    m.r[3].w = 0.0f;
+    Mtx_Persp(&m, fovy, aspect, znear, zfar, false);
 }
 
 void RenderFrame(const Camera& cam) {
     if (!g_target || !g_world) return;
 
+    // Камера: lookAt из cam.pos на cam.look
     C3D_Mtx view;
-    C3D_Vec3 up = {0.0f, 1.0f, 0.0f};
-    C3D_Vec3 eye = {cam.pos.x, cam.pos.y, cam.pos.z};
-    C3D_Vec3 tgt = {cam.look.x, cam.look.y, cam.look.z};
-    Mtx_LookAt(&view, &eye, &tgt, &up);
+    C3D_FVec up   = FVec3_New(0.0f, 1.0f, 0.0f);
+    C3D_FVec eye  = FVec3_New(cam.pos.x, cam.pos.y, cam.pos.z);
+    C3D_FVec tgt  = FVec3_New(cam.look.x, cam.look.y, cam.look.z);
+    Mtx_LookAt(&view, eye, tgt, up, false);
 
+    // Проекция
     perspective(g_projection, 1.2f, (float)400/240, 0.1f, 100.0f);
 
+    // Реальная отрисовка ниже
     C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
     C3D_RenderTargetClear(g_target, C3D_CLEAR_ALL, 0x68B0D8FF, 0);
     C3D_FrameDrawOn(g_target);
 
-    // uniform projection = projection * view (шейдер без modelView)
+    // Комбинируем проекцию и камеру: uniform projection = projection * view,
+    // т.к. шейдер работает только с uniform'ом projection (без modelView).
     C3D_Mtx projView;
     Mtx_Multiply(&projView, &g_projection, &view);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_uLocProjection, &projView);
