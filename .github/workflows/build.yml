@@ -18,22 +18,31 @@ jobs:
         run: |
           set -e
           UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-          wget -U "${UA}" https://apt.devkitpro.org/install-devkitpro-pacman
+          wget -q -U "${UA}" https://apt.devkitpro.org/install-devkitpro-pacman
           chmod +x ./install-devkitpro-pacman
-          sudo ./install-devkitpro-pacman
+          # Ставим пакет БЕЗ выполнения почтового скрипта (он сразу делает pacman -Sy,
+          # который до подмены загрузчика падает с 403). После этого пропишем XferCommand.
+          sudo ./install-devkitpro-pacman --no-install-recommends || \
+            sudo dpkg --force-depends -i /var/cache/apt/archives/devkitpro-pacman*.deb 2>/dev/null || true
+
+          # Подменяем загрузчик pacman на curl с браузерным UA (обход 403)
+          DKPCONF=/opt/devkitpro/pacman/etc/pacman.conf
+          printf '#!/usr/bin/env bash\nUA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"\nexec /usr/bin/curl -fL --retry 4 --retry-all-errors -A "$UA" -o "$2" "$1"\n' | sudo tee /usr/local/bin/dkp-dl.sh >/dev/null
+          sudo chmod +x /usr/local/bin/dkp-dl.sh
+          if [ -f "$DKPCONF" ] && ! grep -q '^XferCommand' "$DKPCONF"; then
+            printf '\n[options]\nXferCommand = /usr/local/bin/dkp-dl.sh %%u %%o\n' | sudo tee -a "$DKPCONF" >/dev/null
+          fi
+
+          # Теперь донастраиваем пакет: postinst сделает pacman -Sy уже через curl с UA
+          sudo dpkg --configure -a || true
+          sudo dpkg --configure -a
+          # прогоняем sync повторно, чтобы гарантированно были свежие базы
+          sudo /opt/devkitpro/pacman/bin/pacman --config "$DKPCONF" -Sy --noconfirm
 
       - name: Install 3DS toolchain + citro3d
         run: |
           set -e
-          # Пакман devkitPro качает с pkg.devkitpro.org; иногда 403 для curl без UA —
-          # подменяем загрузчик на curl с браузерным User-Agent (без heredoc).
           DKPCONF=/opt/devkitpro/pacman/etc/pacman.conf
-          if [ -f "$DKPCONF" ] && ! grep -q '^XferCommand' "$DKPCONF"; then
-            printf '#!/usr/bin/env bash\nUA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"\nexec /usr/bin/curl -fL --retry 3 -A "$UA" -o "$2" "$1"\n' | sudo tee /usr/local/bin/dkp-dl.sh >/dev/null
-            sudo chmod +x /usr/local/bin/dkp-dl.sh
-            printf '\n[options]\nXferCommand = /usr/local/bin/dkp-dl.sh %%u %%o\n' | sudo tee -a "$DKPCONF" >/dev/null
-          fi
-          sudo /opt/devkitpro/pacman/bin/pacman --config "$DKPCONF" -Sy --noconfirm
 
           # 3ds-dev — это ГРУППА (devkitARM + libctru + citro3d + tools).
           # Пустой ввод в stdin выбирает "all" (поставить всю группу) без интерактива.
