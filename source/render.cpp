@@ -13,7 +13,7 @@ static Vec3 g_playerPos;
 // Шейдер
 static DVLB_s* g_dvlb = nullptr;
 static shaderProgram_s g_program;
-static int g_uLocProjection;
+static int g_uLocProjection = -1;
 static C3D_Mtx g_projection;
 
 #define DISPLAY_TRANSFER_FLAGS \
@@ -32,16 +32,22 @@ void RenderInit() {
 
     g_uLocProjection = shaderInstanceGetUniformLocation(g_program.vertexShader, "projection");
 
+    // В immediate-режиме формат и число компонент игнорируются, но загрузчики нужны.
     C3D_AttrInfo* attrInfo = C3D_GetAttrInfo();
     AttrInfo_Init(attrInfo);
-    AttrInfo_AddLoader(attrInfo, 0, GPU_FLOAT, 3); // v0 = position
-    AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 3); // v1 = color
+    AttrInfo_AddLoader(attrInfo, 0, GPU_FLOAT, 3); // v0 = позиция
+    AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 3); // v1 = цвет
 
-    // Фрагментный shader: просто цвет вершины (no texture)
+    // Фрагментный TEV-блок: просто отдаём цвет вершины.
+    // В C++ нельзя передавать 0 вместо enum-значения (старый пример из C),
+    // поэтому все три источника указываем явно.
     C3D_TexEnv* env = C3D_GetTexEnv(0);
     C3D_TexEnvInit(env);
-    C3D_TexEnvSrc(env, C3D_Both, GPU_PRIMARY_COLOR, 0, 0);
+    C3D_TexEnvSrc(env, C3D_Both, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR);
     C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+
+    // Mtx_PerspTilt обязателен: экран 3DS повёрнут, обычный Mtx_Persp даёт картинку "набок".
+    Mtx_PerspTilt(&g_projection, C3D_AngleFromDegrees(60.0f), C3D_AspectRatioTop, 0.1f, 300.0f, false);
 }
 
 void RenderShutdown() {
@@ -52,93 +58,81 @@ void RenderShutdown() {
 void RenderSetWorld(World* w) { g_world = w; }
 void SetPlayerPos(const Vec3& p) { g_playerPos = p; }
 
-// helper: отправить одну вершину (позиция + цвет)
+// одна вершина: позиция + цвет
 static inline void vert(float x, float y, float z, float r, float g, float b) {
-    C3D_ImmSendAttrib(x, y, z, 0.0f);           // position
-    C3D_ImmSendAttrib(r, g, b, 1.0f);           // color
+    C3D_ImmSendAttrib(x, y, z, 1.0f);   // v0
+    C3D_ImmSendAttrib(r, g, b, 1.0f);   // v1
 }
 
-// Отрисовка грани куба из 4 вершин (квад = 2 треугольника)
+// квад из 4 вершин (2 треугольника)
 static void drawQuad(const Vec3* v, float cr, float cg, float cb) {
-    // v[0..3] — четыре угла в порядке обхода
     C3D_ImmDrawBegin(GPU_TRIANGLES);
     vert(v[0].x, v[0].y, v[0].z, cr, cg, cb);
     vert(v[1].x, v[1].y, v[1].z, cr, cg, cb);
     vert(v[3].x, v[3].y, v[3].z, cr, cg, cb);
-    vert(v[0].x, v[0].y, v[0].z, cr, cg, cb);
-    vert(v[3].x, v[3].y, v[3].z, cr, cg, cb);
+    vert(v[1].x, v[1].y, v[1].z, cr, cg, cb);
     vert(v[2].x, v[2].y, v[2].z, cr, cg, cb);
+    vert(v[3].x, v[3].y, v[3].z, cr, cg, cb);
     C3D_ImmDrawEnd();
 }
 
-// Отрисовка куба: centre + half размеры, цвет в 0xRRGGBB
+// куб: центр + половина размеров + цвет 0xRRGGBB
 static void drawBox(const Vec3& centre, const Vec3& half, u32 rgb) {
     float x0 = centre.x-half.x, x1 = centre.x+half.x;
     float y0 = centre.y-half.y, y1 = centre.y+half.y;
     float z0 = centre.z-half.z, z1 = centre.z+half.z;
 
-    // 8 вершин
     Vec3 p[8] = {
-        Vec3(x0,y0,z0), Vec3(x1,y0,z0), Vec3(x1,y1,z0), Vec3(x0,y1,z0), // 0-3 (низ/верх z0)
-        Vec3(x0,y0,z1), Vec3(x1,y0,z1), Vec3(x1,y1,z1), Vec3(x0,y1,z1)  // 4-7 (z1)
+        Vec3(x0,y0,z0), Vec3(x1,y0,z0), Vec3(x1,y1,z0), Vec3(x0,y1,z0),
+        Vec3(x0,y0,z1), Vec3(x1,y0,z1), Vec3(x1,y1,z1), Vec3(x0,y1,z1)
     };
 
-    // лёгкая подсветка граней для объёма
     float r = ((rgb>>16)&0xFF)/255.0f, g = ((rgb>>8)&0xFF)/255.0f, b = (rgb&0xFF)/255.0f;
 
-    // +y (верх) светлый, низ темнее, бока средне
     Vec3 quad[4];
 
-    // топ (+y): 3,2,6,7
+    // верх (+y)
     quad[0]=p[3]; quad[1]=p[2]; quad[2]=p[6]; quad[3]=p[7];
     drawQuad(quad, r, g, b);
-    // бот (-y): 0,4,5,1
+    // низ (-y)
     quad[0]=p[0]; quad[1]=p[4]; quad[2]=p[5]; quad[3]=p[1];
     drawQuad(quad, r*0.5f, g*0.5f, b*0.5f);
-    // +x: 1,5,6,2
+    // +x
     quad[0]=p[1]; quad[1]=p[5]; quad[2]=p[6]; quad[3]=p[2];
     drawQuad(quad, r*0.8f, g*0.8f, b*0.8f);
-    // -x: 0,3,7,4
+    // -x
     quad[0]=p[0]; quad[1]=p[3]; quad[2]=p[7]; quad[3]=p[4];
     drawQuad(quad, r*0.7f, g*0.7f, b*0.7f);
-    // +z: 4,7,6,5
+    // +z
     quad[0]=p[4]; quad[1]=p[7]; quad[2]=p[6]; quad[3]=p[5];
     drawQuad(quad, r*0.9f, g*0.9f, b*0.9f);
-    // -z: 0,1,2,3
+    // -z
     quad[0]=p[0]; quad[1]=p[1]; quad[2]=p[2]; quad[3]=p[3];
     drawQuad(quad, r*0.6f, g*0.6f, b*0.6f);
-}
-
-// Перспективная проекция
-static void perspective(C3D_Mtx& m, float fovy, float aspect, float znear, float zfar) {
-    Mtx_Persp(&m, fovy, aspect, znear, zfar, false);
 }
 
 void RenderFrame(const Camera& cam) {
     if (!g_target || !g_world) return;
 
-    // Камера: lookAt из cam.pos на cam.look
+    // Вид: из камеры на точку взгляда
     C3D_Mtx view;
-    C3D_FVec up   = FVec3_New(0.0f, 1.0f, 0.0f);
-    C3D_FVec eye  = FVec3_New(cam.pos.x, cam.pos.y, cam.pos.z);
-    C3D_FVec tgt  = FVec3_New(cam.look.x, cam.look.y, cam.look.z);
-    Mtx_LookAt(&view, eye, tgt, up, false);
+    Mtx_LookAt(&view,
+               FVec3_New(cam.pos.x,  cam.pos.y,  cam.pos.z),
+               FVec3_New(cam.look.x, cam.look.y, cam.look.z),
+               FVec3_New(0.0f, 1.0f, 0.0f), false);
 
-    // Проекция
-    perspective(g_projection, 1.2f, (float)400/240, 0.1f, 100.0f);
+    // Шейдер знает только одну матрицу — сразу projection * view
+    C3D_Mtx projView;
+    Mtx_Multiply(&projView, &g_projection, &view);
 
-    // Реальная отрисовка ниже
     C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
     C3D_RenderTargetClear(g_target, C3D_CLEAR_ALL, 0x68B0D8FF, 0);
     C3D_FrameDrawOn(g_target);
 
-    // Комбинируем проекцию и камеру: uniform projection = projection * view,
-    // т.к. шейдер работает только с uniform'ом projection (без modelView).
-    C3D_Mtx projView;
-    Mtx_Multiply(&projView, &g_projection, &view);
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_uLocProjection, &projView);
+    C3D_DepthTest(true, GPU_GEQUAL, GPU_WRITE_ALL);
 
-    // --- Мир: боксы карты ---
+    // --- Карта ---
     for (int i = 0; i < g_world->count; ++i) {
         const Box& b = g_world->boxes[i];
         Vec3 c = (b.min + b.max) * 0.5f;
@@ -147,12 +141,13 @@ void RenderFrame(const Camera& cam) {
         drawBox(c, h, col);
     }
 
-    // --- Персонаж (куб) ---
+    // --- Персонаж (position = ноги) ---
     {
-        Vec3 at = g_playerPos;
-        drawBox(at + Vec3(0, 0.85f, 0), Vec3(0.35f, 0.85f, 0.35f), 0xFFFFFF);   // тело
-        drawBox(at + Vec3(0, 1.30f, 0), Vec3(0.22f, 0.22f, 0.22f), 0xFFDAB9);     // голова
-        drawBox(at + Vec3(0, 1.65f, 0), Vec3(0.26f, 0.12f, 0.26f), 0x2C2C2C);     // шапка
+        const Vec3& at = g_playerPos;
+        drawBox(at + Vec3(0.0f, 0.43f, 0.0f), Vec3(0.28f, 0.43f, 0.28f), 0x2B3A5B); // штаны
+        drawBox(at + Vec3(0.0f, 1.17f, 0.0f), Vec3(0.34f, 0.31f, 0.22f), 0xEDEDED); // торс
+        drawBox(at + Vec3(0.0f, 1.61f, 0.0f), Vec3(0.15f, 0.14f, 0.15f), 0xA9764F); // голова
+        drawBox(at + Vec3(0.0f, 1.77f, 0.0f), Vec3(0.17f, 0.04f, 0.17f), 0x1A1A1A); // кепка
     }
 
     C3D_FrameEnd(0);
