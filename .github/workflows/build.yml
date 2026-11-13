@@ -10,53 +10,19 @@ jobs:
   build-3ds:
     name: Build .3dsx + .cia
     runs-on: ubuntu-latest
+    # Официальный Docker-образ devkitPro с полным тулчейном (devkitARM + libctru + citro3d + инструменты).
+    # Решает проблему 403: не нужно качать пакеты с pkg.devkitpro.org (он блокирует IP GitHub Actions).
+    container: devkitpro/devkitarm:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up devkitPro (pacman)
+      - name: Show toolchain
         run: |
-          set -e
-          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-          wget -q -U "${UA}" https://apt.devkitpro.org/install-devkitpro-pacman
-          chmod +x ./install-devkitpro-pacman
-          # Ставим пакет БЕЗ выполнения почтового скрипта (он сразу делает pacman -Sy,
-          # который до подмены загрузчика падает с 403). После этого пропишем XferCommand.
-          sudo ./install-devkitpro-pacman --no-install-recommends || \
-            sudo dpkg --force-depends -i /var/cache/apt/archives/devkitpro-pacman*.deb 2>/dev/null || true
-
-          # Подменяем загрузчик pacman на curl с браузерным UA (обход 403)
-          DKPCONF=/opt/devkitpro/pacman/etc/pacman.conf
-          printf '#!/usr/bin/env bash\nUA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"\nexec /usr/bin/curl -fL --retry 4 --retry-all-errors -A "$UA" -o "$2" "$1"\n' | sudo tee /usr/local/bin/dkp-dl.sh >/dev/null
-          sudo chmod +x /usr/local/bin/dkp-dl.sh
-          if [ -f "$DKPCONF" ] && ! grep -q '^XferCommand' "$DKPCONF"; then
-            printf '\n[options]\nXferCommand = /usr/local/bin/dkp-dl.sh %%u %%o\n' | sudo tee -a "$DKPCONF" >/dev/null
-          fi
-
-          # Теперь донастраиваем пакет: postinst сделает pacman -Sy уже через curl с UA
-          sudo dpkg --configure -a || true
-          sudo dpkg --configure -a
-          # прогоняем sync повторно, чтобы гарантированно были свежие базы
-          sudo /opt/devkitpro/pacman/bin/pacman --config "$DKPCONF" -Sy --noconfirm
-
-      - name: Install 3DS toolchain + citro3d
-        run: |
-          set -e
-          DKPCONF=/opt/devkitpro/pacman/etc/pacman.conf
-
-          # 3ds-dev — это ГРУППА (devkitARM + libctru + citro3d + tools).
-          # Пустой ввод в stdin выбирает "all" (поставить всю группу) без интерактива.
-          # general-tools даёт makerom/bannertool (нужны для сборки .cia).
-          echo "" | sudo /opt/devkitpro/pacman/bin/pacman --config "$DKPCONF" -S --noconfirm 3ds-dev
-          echo "" | sudo /opt/devkitpro/pacman/bin/pacman --config "$DKPCONF" -S --noconfirm general-tools
-
-      - name: Verify toolchain
-        run: |
-          echo "DEVKITPRO=${DEVKITPRO:-/opt/devkitpro}"
-          echo "DEVKITARM=${DEVKITARM:-$DEVKITPRO/devkitARM}"
-          ls "$DEVKITPRO/libctru/include" >/dev/null && echo "libctru OK"
-          ls "$DEVKITPRO/libcitro3d/include" >/dev/null && echo "citro3d OK"
+          echo "DEVKITPRO=$DEVKITPRO"
+          echo "DEVKITARM=$DEVKITARM"
           arm-none-eabi-gcc --version | head -1
+          echo "--- tools ---"
           for t in makerom bannertool smdhtool 3dsxtool bin2s; do
             echo -n "$t: "; command -v $t || echo "MISSING"
           done
