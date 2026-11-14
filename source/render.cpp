@@ -41,10 +41,11 @@ static bool uploadTextures(const GsModel& m) {
     for (int i = 0; i < g_texCount; ++i) {
         const GsTexture& t = m.textures[i];
         if (t.w > 1024 || t.h > 1024) { ok = false; continue; }
-        C3D_TexInit(&g_tex[i], t.w, t.h, GPU_RGBA8);
+        if (!C3D_TexInit(&g_tex[i], t.w, t.h, GPU_RGBA8)) { printf("tex init fail %d\n", i); ok = false; continue; }
         C3D_TexSetFilter(&g_tex[i], GPU_LINEAR, GPU_LINEAR);
         C3D_TexSetWrap(&g_tex[i], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
         C3D_TexUpload(&g_tex[i], t.rgba);
+        printf("tex %d: '%s' %ux%u\n", i, t.name, (unsigned)t.w, (unsigned)t.h);
     }
     return ok;
 }
@@ -159,7 +160,7 @@ static void drawBox(const Vec3& centre, const Vec3& half, u32 rgb) {
     drawQuad(quad, r*0.6f, g*0.6f, b*0.6f);
 }
 
-// --- CJ: RW-координаты (Z вверх) -> мир (Y вверх) ---
+// --- CJ ---
 static void drawCJ(const Vec3& feetPos, float yaw, AnimType anim, float time) {
     if (!g_modelLoaded) return;
 
@@ -207,6 +208,25 @@ static void drawCJ(const Vec3& feetPos, float yaw, AnimType anim, float time) {
         }
         C3D_ImmDrawEnd();
     }
+}
+
+// --- Проверочный текстурированный квад с лицом (для диагностики текстур) ---
+static void drawTestQuad() {
+    if (g_texCount < 1) return;
+    C3D_TexBind(0, &g_tex[0]);
+    C3D_ImmDrawBegin(GPU_TRIANGLES);
+    float s = 1.2f;
+    // впереди камеры (по -Z от спавна), крупный
+    float x0 = g_playerPos.x - s, x1 = g_playerPos.x + s;
+    float y0 = 0.1f, y1 = y0 + 2.0f;
+    float z = g_playerPos.z - 3.0f;
+    vert(x0, y0, z, 1,1,1, 0, 0);
+    vert(x1, y0, z, 1,1,1, 1, 0);
+    vert(x1, y1, z, 1,1,1, 1, 1);
+    vert(x0, y0, z, 1,1,1, 0, 0);
+    vert(x1, y1, z, 1,1,1, 1, 1);
+    vert(x0, y1, z, 1,1,1, 0, 1);
+    C3D_ImmDrawEnd();
 }
 
 void RenderFrame(const Camera& cam) {
@@ -292,8 +312,9 @@ void RenderFrame(const Camera& cam) {
         }
     }
 
-    // --- Персонаж ---
+    // --- Персонаж + проверочный квад с текстурой ---
     drawCJ(g_playerPos, g_facing, g_anim, g_animTime);
+    drawTestQuad();
 
     C3D_FrameEnd(0);
 }
