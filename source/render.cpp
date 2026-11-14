@@ -3,6 +3,7 @@
 #include <citro3d.h>
 #include <string.h>
 #include <math.h>
+#include <stdio.h>          // <-- ДОБАВЛЕНО (для printf)
 #include "gsmod.hpp"
 #include "gsmap.hpp"
 #include "vshader_shbin.h"
@@ -216,7 +217,6 @@ static void drawTestQuad() {
     C3D_TexBind(0, &g_tex[0]);
     C3D_ImmDrawBegin(GPU_TRIANGLES);
     float s = 1.2f;
-    // впереди камеры (по -Z от спавна), крупный
     float x0 = g_playerPos.x - s, x1 = g_playerPos.x + s;
     float y0 = 0.1f, y1 = y0 + 2.0f;
     float z = g_playerPos.z - 3.0f;
