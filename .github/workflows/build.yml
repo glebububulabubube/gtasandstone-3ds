@@ -1,4 +1,21 @@
-      uses: actions/checkout@v4
+name: build
+
+on:
+  push:
+    branches: [ "*" ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-3ds:
+    name: Build .3dsx + .cia
+    runs-on: ubuntu-latest
+    # Официальный Docker-образ devkitPro с полным тулчейном (devkitARM + libctru + citro3d + инструменты).
+    # Решает проблему 403: не нужно качать пакеты с pkg.devkitpro.org (он блокирует IP GitHub Actions).
+    container: devkitpro/devkitarm:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Show toolchain
         run: |
