@@ -13,17 +13,19 @@ static C3D_RenderTarget* g_target = nullptr;
 static World* g_world = nullptr;
 static Vec3 g_playerPos;
 static AnimType g_anim = ANIM_IDLE;
-static float g_facing = 0.0f;
+static float g_facing = 0.0f; // yaw
 static float g_animTime = 0.0f;
 static GsModel g_model;
 static bool g_modelLoaded = false;
 static C3D_Tex g_tex[8];
 static int g_texCount = 0;
-static C3D_Tex g_whiteTex;
+static C3D_Tex g_whiteTex;   // белая 1x1 — чтобы кубы не читали текстуру CJ
 
+// Карта (.gsmap) — стриминг по секторам
 static GsMap g_map;
 static bool g_mapLoaded = false;
 
+// Шейдер
 static DVLB_s* g_dvlb = nullptr;
 static shaderProgram_s g_program;
 static int g_uLocProjection = -1;
@@ -68,12 +70,14 @@ void RenderInit() {
 
     g_uLocProjection = shaderInstanceGetUniformLocation(g_program.vertexShader, "projection");
 
+    // v0 = позиция, v1 = цвет, v2 = texcoord
     C3D_AttrInfo* attrInfo = C3D_GetAttrInfo();
     AttrInfo_Init(attrInfo);
     AttrInfo_AddLoader(attrInfo, 0, GPU_FLOAT, 3);
     AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 3);
     AttrInfo_AddLoader(attrInfo, 2, GPU_FLOAT, 2);
 
+    // TEV: текстура * цвет вершины (модуляция), фолбэк на цвет
     C3D_TexEnv* env = C3D_GetTexEnv(0);
     C3D_TexEnvInit(env);
     C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR);
@@ -81,6 +85,7 @@ void RenderInit() {
 
     Mtx_PerspTilt(&g_projection, C3D_AngleFromDegrees(60.0f), C3D_AspectRatioTop, 0.1f, 300.0f, false);
 
+    // белая текстура 1x1: привязывается к кубам карты (TEV = tex*color => белый не затемняет)
     uint8_t white[4] = {255, 255, 255, 255};
     C3D_TexInit(&g_whiteTex, 1, 1, GPU_RGBA8);
     C3D_TexSetFilter(&g_whiteTex, GPU_NEAREST, GPU_NEAREST);
@@ -100,7 +105,7 @@ void RenderShutdown() {
 void RenderSetWorld(World* w) { g_world = w; }
 void GsmSetMap(const GsMap& m) {
     if (g_mapLoaded) gsmapFree(g_map);
-    g_map = m;
+    g_map = m;                    // владение буферами (malloc в gsmapLoad) переходит к рендеру
     g_mapLoaded = (m.models != 0 && m.sectors != 0);
 }
 void SetPlayerPos(const Vec3& p) { g_playerPos = p; }
@@ -109,7 +114,7 @@ void SetPlayerFacing(float yawRad) { g_facing = yawRad; }
 void SetAnimTime(float t) { g_animTime = t; }
 void GsmSetModel(const GsModel& m) {
     if (g_modelLoaded) gsmodFree(g_model);
-    g_model = m;
+    g_model = m;              // владение буферами (malloc в gsmodLoad) переходит к рендеру
     g_modelLoaded = (m.bones != 0);
     freeTextures();
     uploadTextures(g_model);
@@ -121,6 +126,7 @@ static inline void vert(float x, float y, float z, float r, float g, float b, fl
     C3D_ImmSendAttrib(u, v, 0.0f, 1.0f);
 }
 
+// квад из 4 вершин (2 треугольника)
 static void drawQuad(const Vec3* v, float cr, float cg, float cb) {
     C3D_ImmDrawBegin(GPU_TRIANGLES);
     vert(v[0].x, v[0].y, v[0].z, cr, cg, cb, 0, 0);
@@ -132,6 +138,7 @@ static void drawQuad(const Vec3* v, float cr, float cg, float cb) {
     C3D_ImmDrawEnd();
 }
 
+// куб: центр + половина размеров + цвет 0xRRGGBB
 static void drawBox(const Vec3& centre, const Vec3& half, u32 rgb) {
     float x0 = centre.x-half.x, x1 = centre.x+half.x;
     float y0 = centre.y-half.y, y1 = centre.y+half.y;
@@ -145,24 +152,34 @@ static void drawBox(const Vec3& centre, const Vec3& half, u32 rgb) {
     float r = ((rgb>>16)&0xFF)/255.0f, g = ((rgb>>8)&0xFF)/255.0f, b = (rgb&0xFF)/255.0f;
 
     Vec3 quad[4];
+
+    // верх (+y)
     quad[0]=p[3]; quad[1]=p[2]; quad[2]=p[6]; quad[3]=p[7];
     drawQuad(quad, r, g, b);
+    // низ (-y)
     quad[0]=p[0]; quad[1]=p[4]; quad[2]=p[5]; quad[3]=p[1];
     drawQuad(quad, r*0.5f, g*0.5f, b*0.5f);
+    // +x
     quad[0]=p[1]; quad[1]=p[5]; quad[2]=p[6]; quad[3]=p[2];
     drawQuad(quad, r*0.8f, g*0.8f, b*0.8f);
+    // -x
     quad[0]=p[0]; quad[1]=p[3]; quad[2]=p[7]; quad[3]=p[4];
     drawQuad(quad, r*0.7f, g*0.7f, b*0.7f);
+    // +z
     quad[0]=p[4]; quad[1]=p[7]; quad[2]=p[6]; quad[3]=p[5];
     drawQuad(quad, r*0.9f, g*0.9f, b*0.9f);
+    // -z
     quad[0]=p[0]; quad[1]=p[1]; quad[2]=p[2]; quad[3]=p[3];
     drawQuad(quad, r*0.6f, g*0.6f, b*0.6f);
 }
 
+// --- рисуем модель CJ (загружена в g_model) в позиции feetPos, yaw поворот, поза от скелета
 static void drawCJ(const Vec3& feetPos, float yaw, AnimType anim, float time) {
     if (!g_modelLoaded) return;
 
-    static const float FEET_OFFSET = 0.5422f;
+    // RW-вертикаль = Z; ноги модели на z≈-1.04, голова на z≈+0.77.
+    // Смещение, чтобы ноги встали на мировой y=0 (после поворота Z->Y).
+    static const float FEET_OFFSET = 1.05f;
 
     Mat34 world[64];
     animateSkeleton(g_model, anim, time, 0.0f, world);
@@ -190,18 +207,20 @@ static void drawCJ(const Vec3& feetPos, float yaw, AnimType anim, float time) {
                 const GsVertex& v = p.verts[idx];
                 float out[3];
                 skinVertex(g_model, world, v.b0, v.w0, v.b1, v.w1, &v.px, out);
-                float lx = out[0], lz = out[2];
-                float wx = lx*cy + lz*sy + feetPos.x;
-                float wy = out[1] + FEET_OFFSET + feetPos.y;
-                float wz = -lx*sy + lz*cy + feetPos.z;
+                // RW (Z вверх) -> наш мир (Y вверх): (x, y, z) -> (x, z, -y)
+                float mx = out[0], my = out[2], mz = -out[1];
+                // поворот yaw вокруг мировой Y + сдвиг
+                float wx = mx*cy + mz*sy + feetPos.x;
+                float wy = my + FEET_OFFSET + feetPos.y;
+                float wz = -mx*sy + mz*cy + feetPos.z;
 
                 uint32_t col = 0xFFFFFF;
                 if (p.matColors && p.numMats) col = p.matColors[0];
                 float cr = ((col>>16)&0xFF)/255.0f, cg = ((col>>8)&0xFF)/255.0f, cb = (col&0xFF)/255.0f;
-                float ny = v.ny;
-                float l = 0.6f + 0.4f*fmaxf(0.0f, ny);
+                // вертикальная компонента нормали RW — это nz
+                float nl = 0.6f + 0.4f*fmaxf(0.0f, v.nz);
                 C3D_ImmSendAttrib(wx, wy, wz, 1.0f);
-                C3D_ImmSendAttrib(cr*l, cg*l, cb*l, 1.0f);
+                C3D_ImmSendAttrib(cr*nl, cg*nl, cb*nl, 1.0f);
                 C3D_ImmSendAttrib(v.u, v.v, 0.0f, 1.0f);
             }
         }
@@ -212,6 +231,7 @@ static void drawCJ(const Vec3& feetPos, float yaw, AnimType anim, float time) {
 void RenderFrame(const Camera& cam) {
     if (!g_target || !g_world) return;
 
+    // Вид
     C3D_Mtx view;
     Mtx_LookAt(&view,
                FVec3_New(cam.pos.x,  cam.pos.y,  cam.pos.z),
@@ -228,8 +248,8 @@ void RenderFrame(const Camera& cam) {
     C3D_FVUnifMtx4x4(GPU_VERTEX_SHADER, g_uLocProjection, &projView);
     C3D_DepthTest(true, GPU_GEQUAL, GPU_WRITE_ALL);
 
-    // --- Карта: стриминг секторов вокруг игрока ---
-    C3D_TexBind(0, &g_whiteTex);
+    // --- Карта ---
+    C3D_TexBind(0, &g_whiteTex);   // кубы используют белую текстуру (цвет вершины)
     for (int i = 0; i < g_world->count; ++i) {
         const Box& b = g_world->boxes[i];
         Vec3 c = (b.min + b.max) * 0.5f;
@@ -238,6 +258,7 @@ void RenderFrame(const Camera& cam) {
         drawBox(c, h, col);
     }
 
+    // --- Карта .gsmap: стриминг секторов вокруг игрока ---
     if (g_mapLoaded) {
         int sectors[16];
         int ns = gsmapSectorsAround(g_map, g_playerPos.x, g_playerPos.z, 250.0f, sectors, 12);
@@ -247,7 +268,7 @@ void RenderFrame(const Camera& cam) {
         for (int si = 0; si < ns; ++si) {
             const GsMapSector& sec = g_map.sectors[sectors[si]];
             for (uint32_t ii = 0; ii < sec.count; ++ii) {
-                if (drawnModels >= 500) break;
+                if (drawnModels >= 500) break;   // защита от переполнения cmd-буфера
                 const GsMapInstance& inst = sec.insts[ii];
                 if (inst.model >= g_map.numModels) continue;
                 const GsMapModel& mod = g_map.models[inst.model];
@@ -256,9 +277,12 @@ void RenderFrame(const Camera& cam) {
                 if (drawnVerts > 60000) { drawnVerts -= mod.numVerts; continue; }
                 drawnModels++;
 
+                // цвета материалов
                 uint32_t col = 0xCCCCCC;
-                if (mod.matColors && mod.numMats) col = mod.matColors[0];
+                if (mod.matColors && mod.numMats)
+                    col = mod.matColors[0];
 
+                // кватернион -> матрица 3x3 (поворот инстанса) в RW-координатах
                 float x=inst.qx, y=inst.qy, z=inst.qz, w=inst.qw;
                 float r[9] = {
                     1-2*(y*y+z*z), 2*(x*y-w*z),   2*(x*z+w*y),
@@ -272,12 +296,16 @@ void RenderFrame(const Camera& cam) {
                         uint32_t idx = mod.tris[t*3 + k];
                         if (idx >= mod.numVerts) continue;
                         const GsMapVertex& v = mod.verts[idx];
-                        float lx = v.px, ly = v.py, lz = v.pz;
-                        float wx = r[0]*lx + r[1]*ly + r[2]*lz + inst.pos.x;
-                        float wy = r[3]*lx + r[4]*ly + r[5]*lz + inst.pos.y;
-                        float wz = r[6]*lx + r[7]*ly + r[8]*lz + inst.pos.z;
-                        float nl = v.ny;
-                        float l = 0.6f + 0.4f*fmaxf(0.0f, nl);
+                        // позиция модели в RW (Z вверх)
+                        float lx = r[0]*v.px + r[1]*v.py + r[2]*v.pz + inst.pos.x;
+                        float ly = r[3]*v.px + r[4]*v.py + r[5]*v.pz + inst.pos.y;
+                        float lz = r[6]*v.px + r[7]*v.py + r[8]*v.pz + inst.pos.z;
+                        // RW (Z вверх) -> наш мир (Y вверх): (x, y, z) -> (x, z, -y)
+                        float wx = lx;
+                        float wy = lz;
+                        float wz = -ly;
+                        // освещение: вертикаль RW = nz
+                        float l = 0.6f + 0.4f*fmaxf(0.0f, v.nz);
                         float cr = ((col>>16)&0xFF)/255.0f*l;
                         float cg = ((col>>8)&0xFF)/255.0f*l;
                         float cb = (col&0xFF)/255.0f*l;
@@ -291,7 +319,7 @@ void RenderFrame(const Camera& cam) {
         }
     }
 
-    // --- Персонаж ---
+    // --- Персонаж: настоящая модель CJ ---
     drawCJ(g_playerPos, g_facing, g_anim, g_animTime);
 
     C3D_FrameEnd(0);
