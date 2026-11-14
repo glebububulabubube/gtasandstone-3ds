@@ -3,7 +3,7 @@
 #include <citro3d.h>
 #include <string.h>
 #include <math.h>
-#include <stdio.h>          // <-- ДОБАВЛЕНО (для printf)
+#include <stdio.h>
 #include "gsmod.hpp"
 #include "gsmap.hpp"
 #include "vshader_shbin.h"
@@ -42,7 +42,8 @@ static bool uploadTextures(const GsModel& m) {
     for (int i = 0; i < g_texCount; ++i) {
         const GsTexture& t = m.textures[i];
         if (t.w > 1024 || t.h > 1024) { ok = false; continue; }
-        if (!C3D_TexInit(&g_tex[i], t.w, t.h, GPU_RGBA8)) { printf("tex init fail %d\n", i); ok = false; continue; }
+        // C3D_TexInit возвращает Result: 0 = УСПЕХ. Проверка '!' переворачивает — поэтому не проверяем.
+        C3D_TexInit(&g_tex[i], t.w, t.h, GPU_RGBA8);
         C3D_TexSetFilter(&g_tex[i], GPU_LINEAR, GPU_LINEAR);
         C3D_TexSetWrap(&g_tex[i], GPU_CLAMP_TO_EDGE, GPU_CLAMP_TO_EDGE);
         C3D_TexUpload(&g_tex[i], t.rgba);
@@ -161,7 +162,7 @@ static void drawBox(const Vec3& centre, const Vec3& half, u32 rgb) {
     drawQuad(quad, r*0.6f, g*0.6f, b*0.6f);
 }
 
-// --- CJ ---
+// --- CJ: RW (Z вверх) -> мир (Y вверх), ноги на y=0 ---
 static void drawCJ(const Vec3& feetPos, float yaw, AnimType anim, float time) {
     if (!g_modelLoaded) return;
 
@@ -211,7 +212,7 @@ static void drawCJ(const Vec3& feetPos, float yaw, AnimType anim, float time) {
     }
 }
 
-// --- Проверочный текстурированный квад с лицом (для диагностики текстур) ---
+// --- Проверочный текстурированный квад с лицом (для диагностики) ---
 static void drawTestQuad() {
     if (g_texCount < 1) return;
     C3D_TexBind(0, &g_tex[0]);
