@@ -1,5 +1,6 @@
 #include <3ds.h>
 #include <citro3d.h>
+#include <citro2d.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,7 @@
 
 static stone::Player player;
 static bool running = true;
+static stone::GsMap map;   // для FPS-экрана
 
 static void handleInput(u32 held, u32 down) {
     player.accel = (held & KEY_R) ? 2.5f : 1.0f; // R - бег
@@ -23,30 +25,33 @@ static void handleInput(u32 held, u32 down) {
 }
 
 static float yawFromForward(const stone::Vec3& f) {
-    // forward (x,z) -> yaw вокруг Y. У нас камера: z вперёд мир, but forward.z=-1 по умолчанию
     float yaw = atan2f(f.x, -f.z);
     return yaw;
 }
 
 int main() {
     gfxInitDefault();
-    C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
+    // Нижний экран — диагностическая консоль
+    consoleInit(GFX_BOTTOM, NULL);
+    // Увеличенный command buffer: много вершин карты через C3D_ImmSendAttrib.
+    C3D_Init(0xC0000);
     stone::RenderInit();
 
     // загружаем модель CJ (вшита в бинарник через bin2o: cj.bin -> cj_bin / cj_bin_size)
     stone::GsModel model;
     if (stone::gsmodLoad(model, cj_bin, cj_bin_size)) {
         stone::GsmSetModel(model);
-        printf("CJ model loaded: %u bones, %u parts\n", model.numBones, model.numParts);
+        printf("CJ model loaded: %u bones, %u parts\n", (unsigned)model.numBones, (unsigned)model.numParts);
     } else {
         printf("CJ model FAILED to load!\n");
     }
 
     // карта (grove.bin -> grove_bin / grove_bin_size)
-    stone::GsMap map;
-    if (stone::gsmapLoad(map, grove_bin, grove_bin_size)) {
-        stone::GsmSetMap(map);
-        printf("Map loaded: %ux%u sectors, %u models\n", map.numSectorsX, map.numSectorsZ, map.numModels);
+    stone::GsMap map2;
+    if (stone::gsmapLoad(map2, grove_bin, grove_bin_size)) {
+        map = map2;
+        stone::GsmSetMap(map2);
+        printf("Map loaded: %ux%u sectors, %u models\n", (unsigned)map2.numSectorsX, (unsigned)map2.numSectorsZ, (unsigned)map2.numModels);
     } else {
         printf("Map FAILED to load!\n");
     }
@@ -63,6 +68,21 @@ int main() {
         u32 held = hidKeysHeld();
         u32 down = hidKeysDown();
         handleInput(held, down);
+
+        // FPS-счётчик (нижний экран)
+        static int frames = 0;
+        static double last = 0.0;
+        double now = svcGetSystemTick() / 268123480.0;
+        frames++;
+        if (now - last >= 1.0) {
+            consoleClear();
+            printf("GTA Sandstone\n");
+            printf("pos: %.1f %.1f %.1f\n", player.position.x, player.position.y, player.position.z);
+            printf("fps: %d\n", frames);
+            printf("sec: %d/%d\n", map.numSectorsX * map.numSectorsZ, map.numSectorsX * map.numSectorsZ);
+            frames = 0;
+            last = now;
+        }
 
         player.update(held, world);
 
