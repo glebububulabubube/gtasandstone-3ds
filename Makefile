@@ -86,11 +86,11 @@ endif
 .PHONY: all clean cia
 
 #---------------------------------------------------------------------------------
-# верхняя цель: собирает .3dsx (через вложенный make в build/), затем .cia.
+# верхняя цель: собирает .3dsx (через вложенный make в build/).
+# .cia опционален (нужен установленный makerom); в CI делаем отдельно.
 #---------------------------------------------------------------------------------
 all: $(BUILD) $(DEPSDIR)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
-	@$(MAKE) --no-print-directory -C $(CURDIR) cia
 
 #---------------------------------------------------------------------------------
 # .cia: makerom упаковывает .elf(+smdh) в installable cia.
@@ -100,7 +100,11 @@ cia: $(OUTPUT).elf $(OUTPUT).smdh
 	@mkdir -p $(CURDIR)/ciabuild
 	@cp $(CURDIR)/$(TARGET).elf $(CURDIR)/ciabuild/gta.elf
 	@cp $(CURDIR)/$(TARGET).smdh $(CURDIR)/ciabuild/gta.smdh
-	@makerom -f cia -o $(CURDIR)/$(TARGET).cia -i $(CURDIR)/ciabuild/gta.elf:$(CURDIR)/ciabuild/gta.smdh
+	@if command -v makerom >/dev/null 2>&1; then \
+		makerom -f cia -o $(CURDIR)/$(TARGET).cia -i $(CURDIR)/ciabuild/gta.elf:$(CURDIR)/ciabuild/gta.smdh; \
+	else \
+		echo "makerom не найден — .cia пропускается (собран только .3dsx)"; \
+	fi
 	@rm -rf $(CURDIR)/ciabuild
 
 $(BUILD):
