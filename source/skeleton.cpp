@@ -98,7 +98,6 @@ static void evalPose(GsModel& m, AnimType anim, float time, float phase, Mat34* 
         float cyc = t * 3.0f * spd;
         float swing = sinf(cyc);
         float swingP = sinf(cyc + PI);
-        float lift  = (anim == ANIM_RUN) ? 0.55f : 0.30f;
         float bend  = (anim == ANIM_RUN) ? 1.1f  : 0.7f;
 
         // ноги: махи вперёд/назад (ось Z в системе бедра)
@@ -141,6 +140,7 @@ static void evalPose(GsModel& m, AnimType anim, float time, float phase, Mat34* 
 }
 
 void animateSkeleton(GsModel& m, AnimType anim, float time, float phase, Mat34* world) {
+    (void)phase;  // зарезервировано
     Mat34 local[64];
     if (m.numBones > 64) return;
     evalPose(m, anim, time, phase, local);
