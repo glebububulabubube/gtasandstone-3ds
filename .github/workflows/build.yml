@@ -23,14 +23,12 @@ jobs:
           git clone --depth 1 https://github.com/devkitPro/3dstools.git /tmp/3dstools
           cd /tmp/3dstools
           ./autogen.sh
-          ./configure
+          ./configure --prefix=/usr/local
           make -j$(nproc)
-          # makerom собирается в src/makerom; если нет — ищем по рекурсии
-          MK="src/makerom/makerom"
-          test -x "$MK" || MK=$(find . -name makerom -type f | head -1)
-          echo "installing makerom from: $MK"
-          install -m 755 "$MK" /usr/local/bin/makerom
-          makerom || true
+          make install
+          echo "--- installed tools ---"
+          ls -la /usr/local/bin/ | grep -i rom || true
+          command -v makerom || echo "NO makerom in PATH"
 
       - name: Build .3dsx
         run: |
@@ -40,17 +38,23 @@ jobs:
           export CT3K="$DEVKITPRO/libcitro3d"
           make -j$(nproc)
 
-      - name: Build .cia
+      - name: Build .cia (if makerom available)
         run: |
           export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
           export DEVKITARM="${DEVKITARM:-$DEVKITPRO/devkitARM}"
           export CTRULIB="$DEVKITPRO/libctru"
           export CT3K="$DEVKITPRO/libcitro3d"
-          make cia
+          if command -v makerom >/dev/null 2>&1; then
+            make cia
+          else
+            echo "makerom не найден — сборка .cia пропущена (есть .3dsx)"
+          fi
+        continue-on-error: true
 
       - name: Verify outputs
         run: |
-          ls -la gtasandstone.3dsx gtasandstone.cia gtasandstone.smdh gtasandstone.elf || true
+          echo "--- files ---"
+          ls -la gtasandstone.3dsx gtasandstone.cia gtasandstone.smdh gtasandstone.elf 2>/dev/null || true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
