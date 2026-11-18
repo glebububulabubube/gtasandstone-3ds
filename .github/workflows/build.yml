@@ -10,22 +10,21 @@ jobs:
   build-3ds:
     name: Build .3dsx + .cia
     runs-on: ubuntu-latest
-    # Официальный Docker-образ devkitPro с полным тулчейном (devkitARM + libctru + citro3d + инструменты).
-    # Решает проблему 403: не нужно качать пакеты с pkg.devkitpro.org (он блокирует IP GitHub Actions).
     container: devkitpro/devkitarm:latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show toolchain
+      - name: Build makerom (from source)
         run: |
-          echo "DEVKITPRO=$DEVKITPRO"
-          echo "DEVKITARM=$DEVKITARM"
-          arm-none-eabi-gcc --version | head -1
-          echo "--- tools ---"
-          for t in makerom bannertool smdhtool 3dsxtool bin2s; do
-            echo -n "$t: "; command -v $t || echo "MISSING"
-          done
+          set -e
+          apt-get update -y
+          apt-get install -y git build-essential libboost-all-dev libssl-dev
+          git clone --depth 1 https://github.com/3dsdev/makerom.git /tmp/makerom
+          cd /tmp/makerom
+          make -j$(nproc)
+          install -m 755 makerom /usr/local/bin/makerom
+          makerom --version || true
 
       - name: Build .3dsx
         run: |
@@ -35,13 +34,13 @@ jobs:
           export CT3K="$DEVKITPRO/libcitro3d"
           make -j$(nproc)
 
-      - name: Build .cia (optional)
+      - name: Build .cia
         run: |
           export DEVKITPRO="${DEVKITPRO:-/opt/devkitpro}"
           export DEVKITARM="${DEVKITARM:-$DEVKITPRO/devkitARM}"
           export CTRULIB="$DEVKITPRO/libctru"
           export CT3K="$DEVKITPRO/libcitro3d"
-          make cia || echo "cia skipped (makerom not found) — ok"
+          make cia
 
       - name: Verify outputs
         run: |
