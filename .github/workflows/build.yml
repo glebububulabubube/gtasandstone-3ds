@@ -25,7 +25,9 @@ jobs:
           ./autogen.sh
           ./configure
           make -j$(nproc)
-          MK=$(find /tmp/3dstools -name makerom -type f | head -1)
+          # makerom собирается в src/makerom; если нет — ищем по рекурсии
+          MK="src/makerom/makerom"
+          test -x "$MK" || MK=$(find . -name makerom -type f | head -1)
           echo "installing makerom from: $MK"
           install -m 755 "$MK" /usr/local/bin/makerom
           makerom || true
