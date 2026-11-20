@@ -1,0 +1,27 @@
+; gtasandstone UI vertex shader (PICA200) — для меню (спрайты/кнопки на весь экран)
+; v0 = position (vec2, в координатах экрана, орто), v1 = color (vec4), v2 = texcoord (vec2)
+; outuv -> TEV берёт текстуру сам.
+
+.fvec u_proj[4]
+
+.constf consts(0.0, 1.0, 0.0, 0.0)
+.alias  zeros consts.xxxx
+.alias  ones  consts.yyyy
+
+.out outpos position
+.out outclr color
+.out outuv  texcoord0
+
+.proc main
+	mov r0.xy,   v0
+	mov r0.zw,   zeros
+
+	dp4 outpos.x, u_proj[0], r0
+	dp4 outpos.y, u_proj[1], r0
+	dp4 outpos.z, u_proj[2], r0
+	dp4 outpos.w, u_proj[3], r0
+
+	mov outclr, v1
+	mov outuv,  v2
+	end
+.end
