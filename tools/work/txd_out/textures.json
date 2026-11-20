@@ -1,0 +1,56 @@
+[
+ {
+  "name": "face",
+  "w": 128,
+  "h": 128,
+  "file": "face.rgba"
+ },
+ {
+  "name": "foot",
+  "w": 64,
+  "h": 64,
+  "file": "foot.rgba"
+ },
+ {
+  "name": "legs_ripped",
+  "w": 128,
+  "h": 256,
+  "file": "legs_ripped.rgba"
+ },
+ {
+  "name": "legs_fat",
+  "w": 128,
+  "h": 256,
+  "file": "legs_fat.rgba"
+ },
+ {
+  "name": "legs",
+  "w": 128,
+  "h": 256,
+  "file": "legs.rgba"
+ },
+ {
+  "name": "torso_ripped",
+  "w": 256,
+  "h": 256,
+  "file": "torso_ripped.rgba"
+ },
+ {
+  "name": "torso_fat",
+  "w": 256,
+  "h": 256,
+  "file": "torso_fat.rgba"
+ },
+ {
+  "name": "torso",
+  "w": 256,
+  "h": 256,
+  "file": "torso.rgba"
+ },
+ {
+  "name": "torso8bit",
+  "w": 256,
+  "h": 256,
+  "file": "torso8bit.rgba"
+ }
+]
