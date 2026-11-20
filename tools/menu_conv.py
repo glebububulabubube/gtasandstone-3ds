@@ -178,6 +178,32 @@ def write_swizzled_rgba(path, img, pw, ph):
         f.write(data)
     print(f'  {os.path.basename(path)}: {pw}x{ph} swizzled RGBA8, {os.path.getsize(path)} bytes')
 
+def gen_assets_header(outdir, names):
+    """Генерит menu_assets.h с static const массивами для малых ассетов (title/skip/play).
+    intro.bin слишком большой (24МБ) — он вшивается через bin2s (как cj.bin/grove.bin)."""
+    lines = ['#pragma once', '// Авто-генерированный заголовок ассетов меню (menu_conv.py).', '// static const — не требует bin2s/bin2o.', '#include <cstdint>', '']
+    for name in names:
+        p = os.path.join(outdir, name + '.bin')
+        data = open(p, 'rb').read()
+        if len(data) > 4*1024*1024:
+            print(f'  skip {name}.bin in header ({len(data)} bytes — слишком большой, через bin2s)')
+            continue
+        var = name.replace('.', '_')
+        lines.append(f'static const unsigned char {var}_data[] = {{')
+        n = 0
+        for i in range(0, len(data), 16):
+            chunk = data[i:i+16]
+            lines.append('    ' + ','.join(str(b) for b in chunk) + ',')
+            n += 1
+        lines.append('};')
+        lines.append(f'static const unsigned int {var}_size = {len(data)};')
+        lines.append('')
+        print(f'  header: {name} -> {len(data)} bytes ({n} lines)')
+    hpath = os.path.join(outdir, '..', '..', '..', 'include', 'menu_assets.h')
+    with open(hpath, 'w') as f:
+        f.write('\n'.join(lines))
+    print(f'menu_assets.h written: {os.path.getsize(hpath)} bytes')
+
 def button_sprite(text, w=200, h=64):
     """Полупрозрачная плашка с текстом -> RGBA HxWx4."""
     img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
@@ -246,7 +272,8 @@ def main():
             frames += 1
             fi += 1
             if frames % 200 == 0: print(f'  frame {frames}')
-        f.seek(2); f.write(struct.pack('<H', frames))
+        f.seek(4); f.write(struct.pack('<H', frames))   # frames пишется ПОСЛЕ w и h
+        f.flush(); os.fsync(f.fileno())
     reader.close()
     print(f'intro.bin: {os.path.getsize(intro_path)} bytes, frames={frames} ({frames/(2670/30):.1f} fps actual)')
 
@@ -267,6 +294,9 @@ def main():
     # кнопки 200x64 -> текстуры 256x64 (swizzled RGBA8)
     write_swizzled_rgba(os.path.join(outdir, 'skip.bin'), button_sprite('SKIP'), 256, 64)
     write_swizzled_rgba(os.path.join(outdir, 'play.bin'), button_sprite('PLAY'), 256, 64)
+
+    # заголовок с данными малых ассетов (title/skip/play); intro.bin (24МБ) — через bin2s как cj/grove
+    gen_assets_header(outdir, ['title', 'skip', 'play'])
 
 if __name__ == '__main__':
     main()
