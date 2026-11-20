@@ -6,11 +6,8 @@
 #include "vshader_ui_shbin.h"
 #include "menu_assets.h"
 
-// Ассеты меню:
-//  - title/skip/play — static const из include/menu_assets.h (генерит menu_conv.py)
-//  - intro.bin (видео, 24МБ) — через bin2s, как cj.bin/grove.bin
-extern const u8 intro_bin[];
-extern const u32 intro_bin_size;
+// Все ассеты меню (intro/title/skip/play) — static const из include/menu_assets.h
+// (генерируется tools/menu_conv.py; bin2s в CI не создаёт символ _size, поэтому отказ от него).
 
 namespace stone {
 
@@ -89,8 +86,8 @@ void MenuInit() {
 
     // --- video: 256x144 ETC1 -> текстура 256x256 (линейные блоки сверху) ---
     g_introFrames = 0;
-    if (intro_bin_size >= 6) {
-        memcpy(&g_introFrames, intro_bin + 4, 2);
+    if (intro_size >= 6) {
+        memcpy(&g_introFrames, intro_data + 4, 2);
         if (C3D_TexInit(&g_texVideo, VIDEO_W, VIDEO_TEX_H, GPU_ETC1)) {
             memset(g_texVideo.data, 0, g_texVideo.size);  // нижние 112 строк — пусто
             C3D_TexFlush(&g_texVideo);
@@ -179,9 +176,9 @@ int MenuFrame(MenuMode mode, int frame, int touchX, int touchY, bool touchDown) 
 
     if (mode == MenuMode::MENU_INTRO) {
         // обновляем ETC1-кадр: копируем ровно 256x144 данных (не полный tex->size,
-        // чтобы не выйти за конец intro.bin), затем сброс кэша
-        if (frame >= 0 && frame < g_introFrames && intro_bin_size >= 6) {
-            const uint8_t* src = intro_bin + 6 + (size_t)frame * VIDEO_ETC1_FRAME_SZ;
+        // чтобы не выйти за конец), затем сброс кэша
+        if (frame >= 0 && frame < g_introFrames && intro_size >= 6) {
+            const uint8_t* src = intro_data + 6 + (size_t)frame * VIDEO_ETC1_FRAME_SZ;
             memcpy(g_texVideo.data, src, VIDEO_ETC1_FRAME_SZ);
             C3D_TexFlush(&g_texVideo);
         }
